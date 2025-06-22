@@ -1,7 +1,6 @@
-
 local ESP = loadstring(game:HttpGet("https://raw.githubusercontent.com/linemaster2/esp-library/main/library.lua"))();
 
-
+-- Zastosuj ustawienia ESP
 ESP.Enabled = false;
 ESP.ShowBox = false;
 ESP.ShowName = false;
@@ -10,29 +9,34 @@ ESP.ShowTracer = false;
 ESP.ShowDistance = false;
 ESP.ShowSkeletons = false;
 
-    local ESP_SETTINGS = {
-        BoxOutlineColor = Color3.new(1, 1, 1),
-        BoxColor = Color3.new(1, 1, 1),
-        NameColor = Color3.new(1, 1, 1),
-        HealthOutlineColor = Color3.new(0, 0, 0),
-        HealthHighColor = Color3.new(0, 1, 0),
-        HealthLowColor = Color3.new(1, 0, 0),
-        CharSize = Vector2.new(4, 6),
-        Teamcheck = false,
-        WallCheck = false,
-        Enabled = false,
-        ShowBox = false,
-        BoxType = "2D",
-        ShowName = false,
-        ShowHealth = false,
-        ShowDistance = false,
-        ShowSkeletons = false,
-        ShowTracer = false,
-        TracerColor = Color3.new(1, 1, 1), 
-        TracerThickness = 2,
-        SkeletonsColor = Color3.new(1, 1, 1),
-        TracerPosition = "Bottom",
-    }
+local ESP_SETTINGS = {
+    BoxOutlineColor = Color3.new(1, 1, 1),
+    BoxColor = Color3.new(1, 1, 1),
+    NameColor = Color3.new(1, 1, 1),
+    HealthOutlineColor = Color3.new(0, 0, 0),
+    HealthHighColor = Color3.new(0, 1, 0),
+    HealthLowColor = Color3.new(1, 0, 0),
+    CharSize = Vector2.new(4, 6),
+    Teamcheck = false,
+    WallCheck = false,
+    Enabled = false,
+    ShowBox = false,
+    BoxType = "2D",
+    ShowName = false,
+    ShowHealth = false,
+    ShowDistance = false,
+    ShowSkeletons = false,
+    ShowTracer = false,
+    TracerColor = Color3.new(1, 1, 1), 
+    TracerThickness = 2,
+    SkeletonsColor = Color3.new(1, 1, 1),
+    TracerPosition = "Bottom",
+}
+
+-- Zastosuj ustawienia
+for key, value in pairs(ESP_SETTINGS) do
+    ESP[key] = value
+end
 
 local aimbotEnabled = false
 local aimAtPart = "HumanoidRootPart"
@@ -41,6 +45,12 @@ local targetNPCs = false
 local teamCheckEnabled = false
 local headSizeEnabled = false
 local espEnabled = false
+local rapidFireEnabled = false
+local antiAimEnabled = false
+local antiAimMode = "Jitter"
+local jitterRange = 30
+local infiniteAmmoEnabled = false
+local thirdPersonEnabled = false
 
 -- Functions
 local function getClosestTarget()
@@ -53,7 +63,7 @@ local function getClosestTarget()
     local shortestDistance = math.huge
 
     local function checkTarget(target)
-        if target and target:IsA("Model") and target:FindFirstChild("Humanoid") and target:FindFirstChild(aimAtPart) then
+        if target and target:IsA("Model") and target:FindFirstChild("Humanoid") and target.Humanoid.Health > 0 and target:FindFirstChild(aimAtPart) then
             local targetRoot = target[aimAtPart]
             local distance = (targetRoot.Position - localRoot.Position).Magnitude
 
@@ -80,13 +90,17 @@ local function getClosestTarget()
 
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= localPlayer and (not teamCheckEnabled or player.Team ~= localPlayer.Team) then
-            checkTarget(player.Character)
+            if player.Character then
+                checkTarget(player.Character)
+            end
         end
     end
 
     if targetNPCs then
-        for _, npc in pairs(workspace:GetDescendants()) do
-            checkTarget(npc)
+        for _, npc in ipairs(workspace:GetChildren()) do
+            if npc:IsA("Model") then
+                checkTarget(npc)
+            end
         end
     end
 
@@ -112,22 +126,7 @@ local function aimAtTarget()
         local closestTarget = getClosestTarget()
         if closestTarget and closestTarget:FindFirstChild(aimAtPart) then
             local targetRoot = closestTarget[aimAtPart]
-
-            while aimbotEnabled and closestTarget and closestTarget:FindFirstChild(aimAtPart) and closestTarget.Humanoid.Health > 0 do
-                lookAt(targetRoot.Position)
-                local rayDirection = (targetRoot.Position - workspace.CurrentCamera.CFrame.Position).Unit * 1000
-                local raycastParams = RaycastParams.new()
-                raycastParams.FilterDescendantsInstances = {character}
-                raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-
-                local raycastResult = workspace:Raycast(workspace.CurrentCamera.CFrame.Position, rayDirection, raycastParams)
-
-                if not raycastResult or not raycastResult.Instance:IsDescendantOf(closestTarget) then
-                    break
-                end
-
-                runService.RenderStepped:Wait()
-            end
+            lookAt(targetRoot.Position)
         end
     end)
 end
@@ -157,96 +156,253 @@ local function resizeHeads()
     end
 end
 
-local function createESP()
-    for _, player in pairs(game:GetService("Players"):GetPlayers()) do
-        if player ~= game.Players.LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
-            local head = player.Character.Head
-            local billboard = Instance.new("BillboardGui")
-            billboard.Adornee = head
-            billboard.Size = UDim2.new(0, 100, 0, 50)
-            billboard.StudsOffset = Vector3.new(0, 2, 0)
-            billboard.AlwaysOnTop = true
-
-            local textLabel = Instance.new("TextLabel")
-            textLabel.Parent = billboard
-            textLabel.Size = UDim2.new(1, 0, 1, 0)
-            textLabel.Text = player.Name
-            textLabel.BackgroundTransparency = 1
-            textLabel.TextStrokeTransparency = 0
-            textLabel.TextScaled = true
-
-            if player.Team then
-                textLabel.TextColor3 = player.Team.TeamColor.Color
-            else
-                textLabel.TextColor3 = Color3.new(1, 1, 1)
-            end
-
-            billboard.Parent = head
-        end
+-- =============================================================================
+-- POPRAWIONY SILNIK RAPID FIRE
+-- =============================================================================
+local rapidFireConnection
+local function setupRapidFire()
+    if rapidFireConnection then
+        rapidFireConnection:Disconnect()
+        rapidFireConnection = nil
     end
+    
+    rapidFireConnection = game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 and rapidFireEnabled then
+            local character = game.Players.LocalPlayer.Character
+            if not character then return end
+            
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if not humanoid then return end
+            
+            local tool = character:FindFirstChildOfClass("Tool")
+            if not tool then return end
+            
+            local fireRate = 0.05
+            while rapidFireEnabled and tool.Parent == character and game:GetService("UserInputService"):IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
+                tool:Activate()
+                task.wait(fireRate)
+            end
+        end
+    end)
 end
 
-local function removeESP()
-    for _, player in pairs(game:GetService("Players"):GetPlayers()) do
-        if player.Character and player.Character:FindFirstChild("Head") then
-            for _, child in pairs(player.Character.Head:GetChildren()) do
-                if child:IsA("BillboardGui") then
-                    child:Destroy()
+-- =============================================================================
+-- POPRAWIONY SILNIK INFINITE AMMO
+-- =============================================================================
+local function setupInfiniteAmmo()
+    local client = game.Players.LocalPlayer
+    local ammo_amount = 99999
+    
+    local function applyInfiniteAmmo()
+        if not infiniteAmmoEnabled then return end
+        
+        -- Sprawdź czy gra ma odpowiednie obiekty
+        local success, stats = pcall(function()
+            return client:WaitForChild("playerstats", 5)
+        end)
+        
+        if success and stats then
+            for k, v in next, stats.slots:GetChildren() do
+                if v:FindFirstChild("ObjectID") then
+                    if v:FindFirstChild("ObjectID"):FindFirstChild("Clip") then
+                        v.ObjectID.Clip.MaxClip.Value = ammo_amount
+                        v.ObjectID.Clip.Value = ammo_amount
+                    end
+                end
+            end
+        else
+            -- Uniwersalna metoda dla większości gier
+            local character = client.Character
+            if character then
+                for _, tool in ipairs(character:GetChildren()) do
+                    if tool:IsA("Tool") then
+                        local ammo = tool:FindFirstChild("Ammo")
+                        if ammo then
+                            ammo.Value = ammo_amount
+                        end
+                        
+                        local clip = tool:FindFirstChild("Clip")
+                        if clip then
+                            clip.Value = ammo_amount
+                        end
+                        
+                        local maxAmmo = tool:FindFirstChild("MaxAmmo")
+                        if maxAmmo then
+                            maxAmmo.Value = ammo_amount
+                        end
+                    end
                 end
             end
         end
     end
+
+    -- Zastosuj przy respawnie
+    client.CharacterAdded:Connect(function(character)
+        task.wait(1)
+        applyInfiniteAmmo()
+    end)
+
+    -- Zastosuj natychmiast
+    applyInfiniteAmmo()
 end
 
+-- =============================================================================
+-- POPRAWIONY SILNIK ANTI-AIM (DZIAŁAJĄCY)
+-- =============================================================================
+local antiAimGyro
+local antiAimPosition
 
+local function setupAntiAim()
+    -- Usuń poprzednie obiekty
+    if antiAimGyro then
+        antiAimGyro:Destroy()
+        antiAimGyro = nil
+    end
+    
+    if antiAimPosition then
+        antiAimPosition:Destroy()
+        antiAimPosition = nil
+    end
 
+    local character = game.Players.LocalPlayer.Character
+    if not character then return end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+
+    -- Stwórz nowe obiekty fizyczne
+    antiAimGyro = Instance.new("BodyGyro")
+    antiAimGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    antiAimGyro.P = 10000
+    antiAimGyro.D = 100
+    antiAimGyro.Parent = humanoidRootPart
+    
+    antiAimPosition = Instance.new("BodyPosition")
+    antiAimPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    antiAimPosition.Position = humanoidRootPart.Position
+    antiAimPosition.P = 10000
+    antiAimPosition.D = 100
+    antiAimPosition.Parent = humanoidRootPart
+end
+
+local function updateAntiAim()
+    if not antiAimEnabled or not antiAimGyro or not antiAimPosition then return end
+    
+    local character = game.Players.LocalPlayer.Character
+    if not character then return end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+
+    -- Aktualizuj pozycję, aby zapobiec upadkowi
+    antiAimPosition.Position = humanoidRootPart.Position
+
+    -- Zastosuj odpowiedni tryb
+    if antiAimMode == "Jitter" then
+        local rangeRad = math.rad(jitterRange)
+        antiAimGyro.CFrame = CFrame.Angles(
+            math.random(-rangeRad, rangeRad),
+            math.random(-rangeRad, rangeRad),
+            math.random(-rangeRad, rangeRad)
+        )
+    elseif antiAimMode == "Spin" then
+        antiAimGyro.CFrame = CFrame.Angles(0, math.rad(tick() * 360 % 360), 0)
+    elseif antiAimMode == "Down" then
+        antiAimGyro.CFrame = CFrame.Angles(math.rad(90), 0, 0)
+    elseif antiAimMode == "Up" then
+        antiAimGyro.CFrame = CFrame.Angles(math.rad(-90), 0, 0)
+    elseif antiAimMode == "Zero" then
+        antiAimGyro.CFrame = CFrame.Angles(0, 0, 0)
+    elseif antiAimMode == "Random" then
+        antiAimGyro.CFrame = CFrame.Angles(
+            math.rad(math.random(-180, 180)),
+            math.rad(math.random(-180, 180)),
+            math.rad(math.random(-180, 180))
+        )
+    end
+end
+
+-- =============================================================================
+-- TRZECIA OSOBA
+-- =============================================================================
+local function toggleThirdPerson()
+    local player = game.Players.LocalPlayer
+    local camera = workspace.CurrentCamera
+    
+    if thirdPersonEnabled then
+        camera.CameraType = Enum.CameraType.Custom
+        camera.CameraSubject = player.Character and player.Character:FindFirstChild("Humanoid")
+    else
+        camera.CameraType = Enum.CameraType.Scriptable
+        camera.CFrame = CFrame.new(player.Character.Head.Position + player.Character.Head.CFrame.LookVector * -5, player.Character.Head.Position)
+    end
+end
+
+-- Inicjalizacja
+task.spawn(function()
+    setupRapidFire()
+    setupInfiniteAmmo()
+    
+    game:GetService("RunService").Heartbeat:Connect(function()
+        if antiAimEnabled then
+            if not antiAimGyro then
+                pcall(setupAntiAim)
+            end
+            pcall(updateAntiAim)
+        elseif antiAimGyro then
+            pcall(function()
+                antiAimGyro:Destroy()
+                antiAimPosition:Destroy()
+                antiAimGyro = nil
+                antiAimPosition = nil
+            end)
+        end
+        
+        if thirdPersonEnabled then
+            pcall(toggleThirdPerson)
+        end
+    end)
+end)
 
 local IJ = false
 
-
-local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/jensonhirst/Orion/main/source')))()
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
     Name = "Skids.cool V2.0",
-    Icon = 0, -- Icon in Topbar. Can use Lucide Icons (string) or Roblox Image (number). 0 to use no icon (default).
+    Icon = 0,
     LoadingTitle = "Hello",
-    LoadingSubtitle = "by Lajcior & Tadek",
-    Theme = "Ocean", -- Check https://docs.sirius.menu/rayfield/configuration/themes
- 
+    LoadingSubtitle = "by Lajcior & Tadek & ThirdPerson",
+    Theme = "Ocean",
     DisableRayfieldPrompts = false,
-    DisableBuildWarnings = false, -- Prevents Rayfield from warning when the script has a version mismatch with the interface
- 
+    DisableBuildWarnings = false,
     ConfigurationSaving = {
        Enabled = true,
-       FolderName = nil, -- Create a custom folder for your hub/game
+       FolderName = nil,
        FileName = "Skids.cool"
     },
- 
     Discord = {
-       Enabled = false, -- Prompt the user to join your Discord server if their executor supports it
-       Invite = "noinvitelink", -- The Discord invite code, do not include discord.gg/. E.g. discord.gg/ ABCD would be ABCD
-       RememberJoins = true -- Set this to false to make them join the discord every time they load it up
+       Enabled = false,
+       Invite = "noinvitelink",
+       RememberJoins = true
     },
- 
-    KeySystem = false, -- Set this to true to use our key system
+    KeySystem = false,
     KeySettings = {
        Title = "Untitled",
        Subtitle = "Key System",
-       Note = "No method of obtaining the key is provided", -- Use this to tell the user how to get a key
-       FileName = "Key", -- It is recommended to use something unique as other scripts using Rayfield may overwrite your key file
-       SaveKey = true, -- The user's key will be saved, but if you change the key, they will be unable to use your script
-       GrabKeyFromSite = false, -- If this is true, set Key below to the RAW site you would like Rayfield to get the key from
+       Note = "No method of obtaining the key is provided",
+       FileName = "Key",
+       SaveKey = true,
+       GrabKeyFromSite = false,
        Key = {"Hello"} 
     }
  })
 
 
-local Tab = Window:CreateTab("Aimbot", 4483362458) -- Title, Image
+local Tab = Window:CreateTab("Aimbot", 4483362458)
 
 local Section = Tab:CreateSection("Settings")
-
-
 
 local Button = Tab:CreateButton({
     Name = "Silent Aim by Lajcior",
@@ -255,16 +411,15 @@ local Button = Tab:CreateButton({
     end,
 })
 
-
 local Toggle = Tab:CreateToggle({
     Name = "Aimbot",
     CurrentValue = false,
-    Flag = "Toggle1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Flag = "AimbotToggle",
     Callback = function(Value)
         aimbotEnabled = Value
-		if aimbotEnabled then
-			aimAtTarget()
-		end
+        if aimbotEnabled then
+            aimAtTarget()
+        end
     end,
  })
 
@@ -272,23 +427,23 @@ local Button = Tab:CreateButton({
     Name = "Switch Aim Part",
     Callback = function()
         if aimAtPart == "HumanoidRootPart" then
-			aimAtPart = "Head"
-		else
-			aimAtPart = "HumanoidRootPart"
-		end
-		OrionLib:MakeNotification({
-			Name = "Aim Part",
-			Content = "Now aiming at: " .. aimAtPart,
-			Image = "rbxassetid://4483345998",
-			Time = 5
-		})
+            aimAtPart = "Head"
+        else
+            aimAtPart = "HumanoidRootPart"
+        end
+        Rayfield:Notify({
+            Title = "Aim Part",
+            Content = "Now aiming at: " .. aimAtPart,
+            Duration = 5,
+            Image = 4483345998
+        })
     end,
  })
 
  local Toggle = Tab:CreateToggle({
     Name = "Wall check",
     CurrentValue = false,
-    Flag = "Toggle1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Flag = "WallCheckToggle",
     Callback = function(Value)
         wallCheckEnabled = Value
     end,
@@ -297,139 +452,254 @@ local Button = Tab:CreateButton({
  local Toggle = Tab:CreateToggle({
     Name = "Team Check",
     CurrentValue = false,
-    Flag = "Toggle1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Flag = "TeamCheckToggle",
     Callback = function(Value)
         teamCheckEnabled = Value
     end,
  })
 
- 
+local Tab = Window:CreateTab("ESP | WALLHACK", "rewind")
 
- local Tab = Window:CreateTab("ESP | WALLHACK", "rewind")
-
- 
-
- local Toggle = Tab:CreateToggle({
+local Toggle = Tab:CreateToggle({
     Name = "Enable Esp",
     CurrentValue = false,
-    Flag = "Toggle1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Flag = "ESPEnabledToggle",
     Callback = function(Value)
-        ESP.ShowBox = Value;
+        ESP.Enabled = Value
     end,
- })
+})
 
- local Toggle = Tab:CreateToggle({
+local Toggle = Tab:CreateToggle({
     Name = "Esp Box",
     CurrentValue = false,
-    Flag = "Toggle1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Flag = "ESPBoxToggle",
     Callback = function(Value)
-        ESP.ShowBox = Value;
+        ESP.ShowBox = Value
     end,
- })
+})
 
- local Toggle = Tab:CreateToggle({
+local Toggle = Tab:CreateToggle({
     Name = "Esp Name",
     CurrentValue = false,
-    Flag = "Toggle1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Flag = "ESPNameToggle",
     Callback = function(Value)
-        ESP.ShowName = Value;
+        ESP.ShowName = Value
     end,
- })
+})
 
- local Toggle = Tab:CreateToggle({
+local Toggle = Tab:CreateToggle({
     Name = "Esp Tracer",
     CurrentValue = false,
-    Flag = "Toggle1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Flag = "ESPTracerToggle",
     Callback = function(Value)
-        ESP.ShowTracer = Value;
+        ESP.ShowTracer = Value
     end,
- })
+})
 
- local Toggle = Tab:CreateToggle({
+local Toggle = Tab:CreateToggle({
     Name = "Esp Distance",
     CurrentValue = false,
-    Flag = "Toggle1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Flag = "ESPDistanceToggle",
     Callback = function(Value)
-        ESP.ShowDistance = Value;
+        ESP.ShowDistance = Value
     end,
- })
+})
 
- local Toggle = Tab:CreateToggle({
+local Toggle = Tab:CreateToggle({
     Name = "Esp Skeleton",
     CurrentValue = false,
-    Flag = "Toggle1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Flag = "ESPSkeletonToggle",
     Callback = function(Value)
-        ESP.ShowSkeletons = Value;
+        ESP.ShowSkeletons = Value
     end,
- })
+})
 
- local Toggle = Tab:CreateToggle({
+local Toggle = Tab:CreateToggle({
     Name = "Team Check",
     CurrentValue = false,
-    Flag = "Toggle1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Flag = "ESPTeamCheckToggle",
     Callback = function(Value)
-        ESP.TeamCheck = Value;
+        ESP.Teamcheck = Value
     end,
- })
+})
 
- local Dropdown = Tab:CreateDropdown({
+local Dropdown = Tab:CreateDropdown({
     Name = "ESP Box Type",
     Options = {"2D","Corner Box Esp"},
-    CurrentOption = {"2D"},
+    CurrentOption = "2D",
     MultipleOptions = false,
-    Flag = "Dropdown1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Flag = "ESPBoxTypeDropdown",
     Callback = function(Value)
-        ESP.BoxType = Value;
+        ESP.BoxType = Value
     end,
- })
+})
 
- local Dropdown = Tab:CreateDropdown({
+local Dropdown = Tab:CreateDropdown({
     Name = "Tracer Position",
     Options = {"Bottom","Top","Middle"},
-    CurrentOption = {"Top"},
+    CurrentOption = "Bottom",
     MultipleOptions = false,
-    Flag = "Dropdown1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Flag = "ESPTracerPositionDropdown",
     Callback = function(Value)
-        ESP.TracerPosition = Value;
+        ESP.TracerPosition = Value
     end,
- })
+})
 
+-- Zakładka Combat
+local Tab = Window:CreateTab("Combat", 4483362458)
 
- local Tab = Window:CreateTab("Misc", 4483362458) -- Title, Image
+-- Rapid Fire
+local Toggle = Tab:CreateToggle({
+    Name = "Rapid Fire",
+    CurrentValue = false,
+    Flag = "RapidFireToggle",
+    Callback = function(Value)
+        rapidFireEnabled = Value
+        Rayfield:Notify({
+            Title = "Rapid Fire",
+            Content = Value and "Enabled! Hold LMB to use" or "Disabled!",
+            Duration = 3,
+            Image = 4483345998
+        })
+    end,
+})
 
- local Toggle = Tab:CreateToggle({
+-- Infinite Ammo
+local Toggle = Tab:CreateToggle({
+    Name = "Infinite Ammo",
+    CurrentValue = false,
+    Flag = "InfiniteAmmoToggle",
+    Callback = function(Value)
+        infiniteAmmoEnabled = Value
+        setupInfiniteAmmo()
+        Rayfield:Notify({
+            Title = "Infinite Ammo",
+            Content = Value and "Enabled! Respawn to apply" or "Disabled!",
+            Duration = 3,
+            Image = 4483345998
+        })
+    end,
+})
+
+-- Anti-Aim
+local Toggle = Tab:CreateToggle({
+    Name = "Anti-Aim",
+    CurrentValue = false,
+    Flag = "AntiAimToggle",
+    Callback = function(Value)
+        antiAimEnabled = Value
+        if Value then
+            pcall(setupAntiAim)
+        end
+        Rayfield:Notify({
+            Title = "Anti-Aim",
+            Content = Value and "Enabled! Mode: "..antiAimMode or "Disabled!",
+            Duration = 3,
+            Image = 4483345998
+        })
+    end,
+})
+
+local Dropdown = Tab:CreateDropdown({
+    Name = "Anti-Aim Mode",
+    Options = {"Jitter", "Spin", "Down", "Up", "Zero", "Random"},
+    CurrentOption = "Jitter",
+    MultipleOptions = false,
+    Flag = "AntiAimModeDropdown",
+    Callback = function(Value)
+        antiAimMode = Value
+        Rayfield:Notify({
+            Title = "Anti-Aim",
+            Content = "Mode changed to: "..Value,
+            Duration = 3,
+            Image = 4483345998
+        })
+    end,
+})
+
+local Slider = Tab:CreateSlider({
+    Name = "Jitter Range",
+    Range = {0, 180},
+    Increment = 5,
+    Suffix = "°",
+    CurrentValue = 30,
+    Flag = "JitterRangeSlider",
+    Callback = function(Value)
+        jitterRange = Value
+    end,
+})
+
+-- Nowa zakładka dla trzeciej osoby
+local Tab = Window:CreateTab("Camera", 4483362458)
+
+local Toggle = Tab:CreateToggle({
+    Name = "Third Person",
+    CurrentValue = false,
+    Flag = "ThirdPersonToggle",
+    Callback = function(Value)
+        thirdPersonEnabled = Value
+        pcall(toggleThirdPerson)
+        Rayfield:Notify({
+            Title = "Third Person",
+            Content = Value and "Enabled!" or "Disabled!",
+            Duration = 3,
+            Image = 4483345998
+        })
+    end,
+})
+
+local Slider = Tab:CreateSlider({
+    Name = "Camera Distance",
+    Range = {5, 20},
+    Increment = 1,
+    Suffix = "studs",
+    CurrentValue = 5,
+    Flag = "CameraDistanceSlider",
+    Callback = function(Value)
+        if thirdPersonEnabled then
+            local player = game.Players.LocalPlayer
+            if player.Character and player.Character:FindFirstChild("Head") then
+                workspace.CurrentCamera.CFrame = CFrame.new(player.Character.Head.Position + player.Character.Head.CFrame.LookVector * -Value, player.Character.Head.Position)
+            end
+        end
+    end,
+})
+
+local Tab = Window:CreateTab("Misc", 4483362458)
+
+local Toggle = Tab:CreateToggle({
     Name = "Infinite Jump",
     CurrentValue = false,
-    Flag = "Toggle1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Flag = "InfiniteJumpToggle",
     Callback = function(Value)
-        IJ = state    game:GetService("UserInputService").JumpRequest:Connect(function()
+        IJ = Value
+        game:GetService("UserInputService").JumpRequest:Connect(function()
             if IJ then
                 game:GetService("Players").LocalPlayer.Character:FindFirstChildOfClass('Humanoid'):ChangeState("Jumping")
             end
         end)
     end,
- })
+})
 
- local Slider = Tab:CreateSlider({
+local Slider = Tab:CreateSlider({
     Name = "Speed Hack",
     Range = {0, 100},
     Increment = 10,
     Suffix = "Bananas",
     CurrentValue = 16,
-    Flag = "Slider1", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+    Flag = "SpeedHackSlider",
     Callback = function(Value)
-    	_G.WS = Value;
+        _G.WS = Value;
         local Humanoid = game:GetService("Players").LocalPlayer.Character.Humanoid;
         Humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
-        Humanoid.WalkSpeed = _G.WS;
+            Humanoid.WalkSpeed = _G.WS;
         end)
         Humanoid.WalkSpeed = _G.WS;
-
     end,
- })
+})
 
 
- local Tab = Window:CreateTab("Info | Authors", 4483362458) -- Title, Image
+local Tab = Window:CreateTab("Info | Authors", 4483362458)
 
- local Label = Tab:CreateLabel("Authors: Lajcior.", 4483362458, Color3.fromRGB(255, 255, 255), false) -- Title, Icon, Color, IgnoreTheme
- local Label = Tab:CreateLabel("Lib UI: Rayfield", 4483362458, Color3.fromRGB(255, 255, 255), false) -- Title, Icon, Color, IgnoreTheme
+local Label = Tab:CreateLabel("Authors: Lajcior & Tadek & ThirdPerson", 4483362458, Color3.fromRGB(255, 255, 255), false)
+local Label = Tab:CreateLabel("Lib UI: Rayfield", 4483362458, Color3.fromRGB(255, 255, 255), false)
